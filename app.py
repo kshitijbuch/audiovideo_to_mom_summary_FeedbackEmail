@@ -63,30 +63,30 @@ if not st.button("▶ Process", type="primary"):
 with tempfile.TemporaryDirectory() as tmp:
     tmp        = Path(tmp)
     input_path = tmp / uploaded.name
-    audio_path = tmp / "audio.wav"
+    audio_path = tmp / "audio.flac"
     stem       = Path(uploaded.name).stem
 
     input_path.write_bytes(uploaded.read())
 
-    # Step 1 — Extract / convert audio
+    # Step 1 — Extract / convert audio (FLAC keeps quality while staying under Groq's 25 MB limit)
     with st.status("Step 1 / 3 — Extracting audio …") as status:
-        suffix = Path(uploaded.name).suffix.lower()
-        if suffix == ".wav":
-            audio_path = input_path
-        else:
-            result = subprocess.run(
-                [
-                    "ffmpeg", "-y", "-i", str(input_path),
-                    "-vn", "-acodec", "pcm_s16le",
-                    "-ar", "16000", "-ac", "1",
-                    str(audio_path),
-                ],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode != 0:
-                st.error(f"FFmpeg failed:\n{result.stderr}")
-                st.stop()
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", str(input_path),
+                "-vn", "-acodec", "flac",
+                "-ar", "16000", "-ac", "1",
+                str(audio_path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            st.error(f"FFmpeg failed:\n{result.stderr}")
+            st.stop()
+        size_mb = audio_path.stat().st_size / 1_000_000
+        if size_mb > 24:
+            st.error(f"Audio file is {size_mb:.1f} MB after compression — exceeds Groq's 25 MB limit. Please upload a shorter clip.")
+            st.stop()
         status.update(label="Step 1 / 3 — Audio ready", state="complete")
 
     # Step 2 — Transcribe via Groq Whisper
