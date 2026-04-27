@@ -25,13 +25,13 @@ except Exception:
 
 # ── Page config ───────────────────────────────────────────────
 st.set_page_config(
-    page_title="Feedback Processor",
+    page_title="Audio/Video to Text Data Conversion",
     page_icon="🎙️",
     layout="centered",
 )
 
-st.title("🎙️ Audio / Video → Meeting Package")
-st.caption("Transasia Biomedicals Ltd. · XL200 Troubleshooting Agent")
+st.title("Audio/Video to Text Data Conversion")
+st.caption("This app transforms the audio in the video and audio notes to its Summary, MOM and Email text for further records and usage.")
 
 # ── Sidebar ───────────────────────────────────────────────────
 with st.sidebar:
