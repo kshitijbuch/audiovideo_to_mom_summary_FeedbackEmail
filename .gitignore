@@ -1,0 +1,17 @@
+# secrets
+.env
+.streamlit/secrets.toml
+
+# local data folders — not needed in cloud
+input/
+output/
+transcript/
+Jalfix Feedbacks/
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+
+# temp files
+audio_temp.wav
