@@ -38,6 +38,13 @@ with st.sidebar:
     st.header("Configuration")
     language = st.selectbox("Transcription language", ["en", "hi", "auto"], index=0)
     st.divider()
+    st.subheader("Generate")
+    do_summary = st.checkbox("📋 Summary",          value=True)
+    do_mom     = st.checkbox("📝 Minutes of Meeting", value=True)
+    do_email   = st.checkbox("📧 Feedback Email",   value=True)
+    if not any([do_summary, do_mom, do_email]):
+        st.warning("Select at least one output.")
+    st.divider()
     st.subheader("Document metadata")
     sender_name      = st.text_input("Your name",    "Kshitij Buch")
     sender_title     = st.text_input("Your title",   "Digital Projects & Technical Support Manager")
@@ -54,6 +61,10 @@ uploaded = st.file_uploader(
 
 if not uploaded:
     st.info("Upload a file above to get started.")
+    st.stop()
+
+if not any([do_summary, do_mom, do_email]):
+    st.warning("Please select at least one output in the sidebar.")
     st.stop()
 
 if not st.button("▶ Process", type="primary"):
@@ -121,22 +132,26 @@ with tempfile.TemporaryDirectory() as tmp:
         f"Context: {feedback_context}"
     )
 
-    with st.status("Step 3 / 3 — Generating summary …") as status:
-        summary = claude_call(
-            system_prompt=base_system,
-            user_prompt=f"""Write a concise executive summary (5–7 bullet points) of the transcript below.
+    summary = mom = email = None
+
+    if do_summary:
+        with st.status("Step 3 / 3 — Generating summary …") as status:
+            summary = claude_call(
+                system_prompt=base_system,
+                user_prompt=f"""Write a concise executive summary (5–7 bullet points) of the transcript below.
 Focus on key observations, issues identified, and outcomes.
 
 Transcript:
 \"\"\"{transcript}\"\"\"
 """,
-        )
-        status.update(label="Step 3 / 3 — Summary done", state="complete")
+            )
+            status.update(label="Step 3 / 3 — Summary done", state="complete")
 
-    with st.status("Step 3 / 3 — Generating minutes of meeting …") as status:
-        mom = claude_call(
-            system_prompt=base_system,
-            user_prompt=f"""Generate structured Minutes of Meeting from the transcript below.
+    if do_mom:
+        with st.status("Step 3 / 3 — Generating minutes of meeting …") as status:
+            mom = claude_call(
+                system_prompt=base_system,
+                user_prompt=f"""Generate structured Minutes of Meeting from the transcript below.
 
 Use this format exactly:
 
@@ -165,13 +180,14 @@ Use this format exactly:
 Transcript:
 \"\"\"{transcript}\"\"\"
 """,
-        )
-        status.update(label="Step 3 / 3 — Minutes done", state="complete")
+            )
+            status.update(label="Step 3 / 3 — Minutes done", state="complete")
 
-    with st.status("Step 3 / 3 — Generating feedback email …") as status:
-        email = claude_call(
-            system_prompt=base_system,
-            user_prompt=f"""Convert the transcript below into a professional feedback email.
+    if do_email:
+        with st.status("Step 3 / 3 — Generating feedback email …") as status:
+            email = claude_call(
+                system_prompt=base_system,
+                user_prompt=f"""Convert the transcript below into a professional feedback email.
 
 Subject: {email_subject}
 From: {sender_name}, {sender_title}, {company}
@@ -186,32 +202,43 @@ Guidelines:
 Transcript:
 \"\"\"{transcript}\"\"\"
 """,
-        )
-        status.update(label="Step 3 / 3 — Email done", state="complete")
+            )
+            status.update(label="Step 3 / 3 — Email done", state="complete")
 
 # ── Outputs ───────────────────────────────────────────────────
-st.success("All documents generated!")
+st.success("Done!")
 
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["📋 Summary", "📝 Minutes of Meeting", "📧 Feedback Email", "🗒️ Transcript"]
-)
+tab_labels = []
+if do_summary: tab_labels.append("📋 Summary")
+if do_mom:     tab_labels.append("📝 Minutes of Meeting")
+if do_email:   tab_labels.append("📧 Feedback Email")
+tab_labels.append("🗒️ Transcript")
 
-with tab1:
-    st.markdown(summary)
-    st.download_button("⬇ Download Summary", summary,
-                       f"{stem}_summary.md", mime="text/markdown")
+tabs = st.tabs(tab_labels)
+idx = 0
 
-with tab2:
-    st.markdown(mom)
-    st.download_button("⬇ Download MoM", mom,
-                       f"{stem}_mom.md", mime="text/markdown")
+if do_summary:
+    with tabs[idx]:
+        st.markdown(summary)
+        st.download_button("⬇ Download Summary", summary,
+                           f"{stem}_summary.md", mime="text/markdown")
+    idx += 1
 
-with tab3:
-    st.markdown(email)
-    st.download_button("⬇ Download Email", email,
-                       f"{stem}_feedback_email.md", mime="text/markdown")
+if do_mom:
+    with tabs[idx]:
+        st.markdown(mom)
+        st.download_button("⬇ Download MoM", mom,
+                           f"{stem}_mom.md", mime="text/markdown")
+    idx += 1
 
-with tab4:
+if do_email:
+    with tabs[idx]:
+        st.markdown(email)
+        st.download_button("⬇ Download Email", email,
+                           f"{stem}_feedback_email.md", mime="text/markdown")
+    idx += 1
+
+with tabs[idx]:
     st.text_area("Raw transcript", transcript, height=300)
     st.download_button("⬇ Download Transcript", transcript,
                        f"{stem}_transcript.txt", mime="text/plain")
