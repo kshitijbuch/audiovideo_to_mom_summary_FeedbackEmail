@@ -63,18 +63,18 @@ if not st.button("▶ Process", type="primary"):
 with tempfile.TemporaryDirectory() as tmp:
     tmp        = Path(tmp)
     input_path = tmp / uploaded.name
-    audio_path = tmp / "audio.flac"
+    audio_path = tmp / "audio.mp3"
     stem       = Path(uploaded.name).stem
 
     input_path.write_bytes(uploaded.read())
 
-    # Step 1 — Extract / convert audio (FLAC keeps quality while staying under Groq's 25 MB limit)
+    # Step 1 — Extract / convert audio (MP3 32kbps mono keeps file well under Groq's 25 MB limit)
     with st.status("Step 1 / 3 — Extracting audio …") as status:
         result = subprocess.run(
             [
                 "ffmpeg", "-y", "-i", str(input_path),
-                "-vn", "-acodec", "flac",
-                "-ar", "16000", "-ac", "1",
+                "-vn", "-acodec", "libmp3lame",
+                "-ar", "16000", "-ac", "1", "-b:a", "32k",
                 str(audio_path),
             ],
             capture_output=True,
