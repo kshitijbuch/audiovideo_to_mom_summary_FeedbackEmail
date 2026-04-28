@@ -5,12 +5,16 @@ Transasia Biomedicals Ltd.
 """
 
 import os
+import re
 import tempfile
 import subprocess
+from io import BytesIO
 from pathlib import Path
 
 import streamlit as st
 import anthropic
+from docx import Document
+from docx.shared import Pt
 from groq import Groq
 from dotenv import load_dotenv
 
@@ -52,6 +56,80 @@ with st.sidebar:
     recipient_name   = st.text_input("Recipient",    "Kshitij Buch")
     email_subject    = st.text_input("Email subject","Feedback – XL200 Troubleshooting Agent CRU Error")
     feedback_context = st.text_input("Context",      "XL200 Troubleshooting Agent Response Feedback")
+
+# ── Markdown → .docx helper ──────────────────────────────────
+def _add_inline(para, text: str):
+    """Write text into a paragraph, honouring **bold** and *italic* markers."""
+    for part in re.split(r"(\*\*[^*]+\*\*|\*[^*]+\*)", text):
+        if part.startswith("**") and part.endswith("**"):
+            para.add_run(part[2:-2]).bold = True
+        elif part.startswith("*") and part.endswith("*"):
+            para.add_run(part[1:-1]).italic = True
+        elif part:
+            para.add_run(part)
+
+
+def markdown_to_docx(markdown_text: str, title: str = "") -> bytes:
+    doc = Document()
+    if title:
+        doc.add_heading(title, level=0)
+
+    lines = markdown_text.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+
+        if line.startswith("### "):
+            doc.add_heading(line[4:].strip(), level=3)
+        elif line.startswith("## "):
+            doc.add_heading(line[3:].strip(), level=2)
+        elif line.startswith("# "):
+            doc.add_heading(line[2:].strip(), level=1)
+        elif line.startswith("|"):
+            # Collect all consecutive table lines
+            tbl_lines = []
+            while i < len(lines) and lines[i].startswith("|"):
+                tbl_lines.append(lines[i])
+                i += 1
+            # Split each row into cells (trim leading/trailing |)
+            rows = [
+                [c.strip() for c in row.strip().strip("|").split("|")]
+                for row in tbl_lines
+            ]
+            # Remove separator rows (cells contain only dashes/spaces)
+            rows = [r for r in rows if not all(re.fullmatch(r"[-: ]+", c) for c in r)]
+            if rows:
+                ncols = max(len(r) for r in rows)
+                tbl = doc.add_table(rows=len(rows), cols=ncols)
+                tbl.style = "Table Grid"
+                for ri, row in enumerate(rows):
+                    for ci, cell_text in enumerate(row):
+                        cell = tbl.cell(ri, ci)
+                        cell.text = ""
+                        p = cell.paragraphs[0]
+                        if ri == 0:
+                            p.add_run(cell_text).bold = True
+                        else:
+                            _add_inline(p, cell_text)
+            continue  # i already advanced past the table
+        elif line.startswith("- ") or line.startswith("* "):
+            p = doc.add_paragraph(style="List Bullet")
+            _add_inline(p, line[2:].strip())
+        elif re.match(r"^\d+\. ", line):
+            p = doc.add_paragraph(style="List Number")
+            _add_inline(p, re.sub(r"^\d+\. ", "", line).strip())
+        elif line.strip():
+            p = doc.add_paragraph()
+            _add_inline(p, line.strip())
+
+        i += 1
+
+    buf = BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 # ── File upload ───────────────────────────────────────────────
 uploaded = st.file_uploader(
@@ -220,22 +298,34 @@ idx = 0
 if do_summary:
     with tabs[idx]:
         st.markdown(summary)
-        st.download_button("⬇ Download Summary", summary,
-                           f"{stem}_summary.md", mime="text/markdown")
+        col1, col2 = st.columns(2)
+        col1.download_button("⬇ Download Summary (.md)", summary,
+                             f"{stem}_summary.md", mime="text/markdown")
+        col2.download_button("⬇ Download Summary (.docx)",
+                             markdown_to_docx(summary, "Summary"),
+                             f"{stem}_summary.docx", mime=DOCX_MIME)
     idx += 1
 
 if do_mom:
     with tabs[idx]:
         st.markdown(mom)
-        st.download_button("⬇ Download MoM", mom,
-                           f"{stem}_mom.md", mime="text/markdown")
+        col1, col2 = st.columns(2)
+        col1.download_button("⬇ Download MoM (.md)", mom,
+                             f"{stem}_mom.md", mime="text/markdown")
+        col2.download_button("⬇ Download MoM (.docx)",
+                             markdown_to_docx(mom, "Minutes of Meeting"),
+                             f"{stem}_mom.docx", mime=DOCX_MIME)
     idx += 1
 
 if do_email:
     with tabs[idx]:
         st.markdown(email)
-        st.download_button("⬇ Download Email", email,
-                           f"{stem}_feedback_email.md", mime="text/markdown")
+        col1, col2 = st.columns(2)
+        col1.download_button("⬇ Download Email (.md)", email,
+                             f"{stem}_feedback_email.md", mime="text/markdown")
+        col2.download_button("⬇ Download Email (.docx)",
+                             markdown_to_docx(email, "Feedback Email"),
+                             f"{stem}_feedback_email.docx", mime=DOCX_MIME)
     idx += 1
 
 with tabs[idx]:

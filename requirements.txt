@@ -2,3 +2,4 @@ streamlit
 anthropic
 groq
 python-dotenv
+python-docx
