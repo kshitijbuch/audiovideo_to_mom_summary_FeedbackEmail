@@ -370,29 +370,39 @@ Transcript:
                     base_system,
                     f"""Generate structured Minutes of Meeting from the transcript below.
 
+CRITICAL RULES — follow these strictly:
+1. Only capture what was actually said in the transcript. Do NOT add, infer, embellish, or assume anything not explicitly stated.
+2. Use the speaker's own words and sentences as closely as possible. Avoid paraphrasing or rewriting.
+3. If information for any section is absent from the transcript, write exactly: "[Not mentioned/discussed in this meeting]" — never leave a section blank or fabricate content.
+4. AGENDA: Extract ONLY what the meeting host/initiator stated as the purpose of the meeting — verbatim or near-verbatim. Do NOT include responses, additions, or elaborations made by other participants. The agenda is set by the host alone.
+5. DISCUSSION: Capture what each participant said using their actual words as closely as possible. Attribute statements to the correct speaker.
+6. OBSERVATIONS & FINDINGS: Only include observations explicitly stated in the transcript. No inferences.
+7. DECISIONS: Only include decisions explicitly stated or agreed upon. Do not infer decisions from discussion.
+8. ACTION ITEMS: Only include tasks explicitly assigned or volunteered in the transcript. Do not derive action items from discussion.
+
 Use this format exactly:
 
 ## Minutes of Meeting
-**Date:** [infer from transcript or leave blank]
+**Date:** [exact date if stated in transcript; otherwise write: Not mentioned in the meeting]
 **Prepared by:** {sender_name}, {sender_title}, {company}
-**Attendees:** [infer from transcript or leave blank]
+**Attendees:** [names if mentioned in transcript; otherwise write: Not mentioned in the meeting]
 
 ### Agenda
-[infer from transcript]
+[Only the host/initiator's stated purpose — verbatim or near-verbatim. No other participant's input here.]
 
 ### Discussion
-[key points discussed]
+[Key points by all participants using their actual words as closely as possible, attributed to the correct speaker]
 
 ### Observations & Findings
-[technical observations and issues noted]
+[Only observations explicitly stated in the transcript. If none: Not mentioned in the meeting.]
 
 ### Decisions
-[decisions made, if any]
+[Only decisions explicitly stated or agreed upon. If none: Not mentioned in the meeting.]
 
 ### Action Items
 | # | Action | Owner | Due |
 |---|--------|-------|-----|
-[rows]
+[Only tasks explicitly assigned or agreed upon in the transcript. If none, add a single row: Not discussed in the meeting | — | —]
 
 Transcript:
 \"\"\"{transcript}\"\"\"
