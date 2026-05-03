@@ -21,20 +21,29 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── API keys ──────────────────────────────────────────────────
-try:
-    ANTHROPIC_API_KEY = st.secrets["ANTHROPIC_API_KEY"]
-    GROQ_API_KEY      = st.secrets["GROQ_API_KEY"]
-except Exception:
-    ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-    GROQ_API_KEY      = os.environ.get("GROQ_API_KEY", "")
+# On Streamlit Cloud: set these in App Settings → Secrets.
+# Locally: set them in .env.
+ANTHROPIC_API_KEY = (
+    st.secrets.get("ANTHROPIC_API_KEY")
+    or os.environ.get("ANTHROPIC_API_KEY", "")
+)
+GROQ_API_KEY = (
+    st.secrets.get("GROQ_API_KEY")
+    or os.environ.get("GROQ_API_KEY", "")
+)
 
-# ── Metadata defaults from .env ───────────────────────────────
-_DEF_SENDER_NAME  = os.environ.get("SENDER_NAME",        "Kshitij Buch")
-_DEF_SENDER_TITLE = os.environ.get("SENDER_TITLE",       "Digital Projects & Technical Support Manager")
-_DEF_COMPANY      = os.environ.get("COMPANY",            "Transasia Biomedicals Ltd.")
-_DEF_RECIPIENT    = os.environ.get("RECIPIENT_NAME",     "Kshitij Buch")
-_DEF_SUBJECT      = os.environ.get("EMAIL_SUBJECT",      "Feedback – XL200 Troubleshooting Agent CRU Error")
-_DEF_CONTEXT      = os.environ.get("FEEDBACK_CONTEXT",   "XL200 Troubleshooting Agent Response Feedback")
+# ── Metadata defaults ─────────────────────────────────────────
+# On Streamlit Cloud: optionally set these in Secrets to pre-fill the sidebar.
+# Locally: set them in .env. Falls back to empty/generic placeholders.
+def _secret(key: str, fallback: str = "") -> str:
+    return st.secrets.get(key) or os.environ.get(key, fallback)
+
+_DEF_SENDER_NAME  = _secret("SENDER_NAME",       "Your Name")
+_DEF_SENDER_TITLE = _secret("SENDER_TITLE",      "Your Title")
+_DEF_COMPANY      = _secret("COMPANY",           "Your Company")
+_DEF_RECIPIENT    = _secret("RECIPIENT_NAME",    "Recipient Name")
+_DEF_SUBJECT      = _secret("EMAIL_SUBJECT",     "Meeting / Session Feedback")
+_DEF_CONTEXT      = _secret("FEEDBACK_CONTEXT",  "Brief context of the recording")
 
 # ── Page config ───────────────────────────────────────────────
 st.set_page_config(
