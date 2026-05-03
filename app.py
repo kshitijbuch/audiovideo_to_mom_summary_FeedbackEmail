@@ -15,18 +15,26 @@ from pathlib import Path
 import streamlit as st
 import anthropic
 from docx import Document
-from docx.shared import Pt
 from groq import Groq
 from dotenv import load_dotenv
+
+load_dotenv()
 
 # ── API keys ──────────────────────────────────────────────────
 try:
     ANTHROPIC_API_KEY = st.secrets["ANTHROPIC_API_KEY"]
     GROQ_API_KEY      = st.secrets["GROQ_API_KEY"]
 except Exception:
-    load_dotenv()
     ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
     GROQ_API_KEY      = os.environ.get("GROQ_API_KEY", "")
+
+# ── Metadata defaults from .env ───────────────────────────────
+_DEF_SENDER_NAME  = os.environ.get("SENDER_NAME",        "Kshitij Buch")
+_DEF_SENDER_TITLE = os.environ.get("SENDER_TITLE",       "Digital Projects & Technical Support Manager")
+_DEF_COMPANY      = os.environ.get("COMPANY",            "Transasia Biomedicals Ltd.")
+_DEF_RECIPIENT    = os.environ.get("RECIPIENT_NAME",     "Kshitij Buch")
+_DEF_SUBJECT      = os.environ.get("EMAIL_SUBJECT",      "Feedback – XL200 Troubleshooting Agent CRU Error")
+_DEF_CONTEXT      = os.environ.get("FEEDBACK_CONTEXT",   "XL200 Troubleshooting Agent Response Feedback")
 
 # ── Page config ───────────────────────────────────────────────
 st.set_page_config(
@@ -36,7 +44,10 @@ st.set_page_config(
 )
 
 st.title("Audio/Video to Text Data Conversion")
-st.caption("This app transforms the audio in the video and audio notes to its Summary, MOM and Email text for further records and usage.")
+st.caption(
+    "Converts audio/video recordings to verbatim Summary, Minutes of Meeting, "
+    "and Feedback Email. Only what was said is captured — nothing is added."
+)
 
 # ── Sidebar ───────────────────────────────────────────────────
 with st.sidebar:
@@ -48,19 +59,19 @@ with st.sidebar:
     )
     st.divider()
     st.subheader("Generate")
-    do_summary = st.checkbox("📋 Summary",           value=True)
+    do_summary = st.checkbox("📋 Summary",            value=True)
     do_mom     = st.checkbox("📝 Minutes of Meeting", value=True)
-    do_email   = st.checkbox("📧 Feedback Email",    value=True)
+    do_email   = st.checkbox("📧 Feedback Email",     value=True)
     if not any([do_summary, do_mom, do_email]):
         st.warning("Select at least one output.")
     st.divider()
     st.subheader("Document metadata")
-    sender_name      = st.text_input("Your name",     "Kshitij Buch")
-    sender_title     = st.text_input("Your title",    "Digital Projects & Technical Support Manager")
-    company          = st.text_input("Company",       "Transasia Biomedicals Ltd.")
-    recipient_name   = st.text_input("Recipient",     "Kshitij Buch")
-    email_subject    = st.text_input("Email subject", "Feedback – XL200 Troubleshooting Agent CRU Error")
-    feedback_context = st.text_input("Context",       "XL200 Troubleshooting Agent Response Feedback")
+    sender_name      = st.text_input("Your name",     _DEF_SENDER_NAME)
+    sender_title     = st.text_input("Your title",    _DEF_SENDER_TITLE)
+    company          = st.text_input("Company",       _DEF_COMPANY)
+    recipient_name   = st.text_input("Recipient",     _DEF_RECIPIENT)
+    email_subject    = st.text_input("Email subject", _DEF_SUBJECT)
+    feedback_context = st.text_input("Context",       _DEF_CONTEXT)
 
 # ── Helpers ───────────────────────────────────────────────────
 def fmt_time(seconds: float) -> str:
@@ -88,6 +99,9 @@ def markdown_to_docx(markdown_text: str, title: str = "") -> bytes:
     i = 0
     while i < len(lines):
         line = lines[i]
+        stripped = line.lstrip()
+        indent   = len(line) - len(stripped)
+
         if line.startswith("### "):
             doc.add_heading(line[4:].strip(), level=3)
         elif line.startswith("## "):
@@ -95,6 +109,7 @@ def markdown_to_docx(markdown_text: str, title: str = "") -> bytes:
         elif line.startswith("# "):
             doc.add_heading(line[2:].strip(), level=1)
         elif line.startswith("|"):
+            # Table block
             tbl_lines = []
             while i < len(lines) and lines[i].startswith("|"):
                 tbl_lines.append(lines[i])
@@ -118,16 +133,32 @@ def markdown_to_docx(markdown_text: str, title: str = "") -> bytes:
                         else:
                             _add_inline(p, cell_text)
             continue
-        elif line.startswith("- ") or line.startswith("* "):
-            p = doc.add_paragraph(style="List Bullet")
-            _add_inline(p, line[2:].strip())
-        elif re.match(r"^\d+\. ", line):
-            p = doc.add_paragraph(style="List Number")
-            _add_inline(p, re.sub(r"^\d+\. ", "", line).strip())
+        elif re.match(r"^(\s*)[-*] ", line):
+            # Bullet — depth based on indent level
+            if indent >= 4:
+                style = "List Bullet 3"
+            elif indent >= 2:
+                style = "List Bullet 2"
+            else:
+                style = "List Bullet"
+            content = re.sub(r"^(\s*)[-*] ", "", line).strip()
+            p = doc.add_paragraph(style=style)
+            _add_inline(p, content)
+        elif re.match(r"^(\s*)\d+\. ", line):
+            if indent >= 4:
+                style = "List Number 3"
+            elif indent >= 2:
+                style = "List Number 2"
+            else:
+                style = "List Number"
+            content = re.sub(r"^(\s*)\d+\. ", "", line).strip()
+            p = doc.add_paragraph(style=style)
+            _add_inline(p, content)
         elif line.strip():
             p = doc.add_paragraph()
             _add_inline(p, line.strip())
         i += 1
+
     buf = BytesIO()
     doc.save(buf)
     return buf.getvalue()
@@ -184,7 +215,6 @@ if st.session_state.stage == "upload":
             audio_path = tmp / "audio.mp3"
             input_path.write_bytes(uploaded.read())
 
-            # Extract / convert to MP3 32kbps mono
             with st.status("Step 1 — Extracting audio …") as s:
                 res = subprocess.run(
                     ["ffmpeg", "-y", "-i", str(input_path),
@@ -198,7 +228,6 @@ if st.session_state.stage == "upload":
                     st.stop()
                 s.update(label="Step 1 — Audio extracted", state="complete")
 
-            # Get total duration via ffprobe
             probe = subprocess.run(
                 ["ffprobe", "-v", "error",
                  "-show_entries", "format=duration",
@@ -208,7 +237,6 @@ if st.session_state.stage == "upload":
             )
             total_dur = float(probe.stdout.strip())
 
-            # Split into chunks
             chunk_sec = chunk_minutes * 60
             with st.status(f"Step 2 — Splitting into {chunk_minutes}-min chunks …") as s:
                 subprocess.run(
@@ -250,7 +278,6 @@ elif st.session_state.stage == "select":
 
     st.subheader(f"Select chunks to transcribe  ({len(chunks)} total)")
 
-    # Initialise checkbox defaults (all selected)
     for c in chunks:
         if f"chunk_{c['idx']}" not in st.session_state:
             st.session_state[f"chunk_{c['idx']}"] = True
@@ -269,23 +296,22 @@ elif st.session_state.stage == "select":
     for chunk in chunks:
         st.checkbox(chunk["label"], key=f"chunk_{chunk['idx']}")
 
-    selected     = [c for c in chunks if st.session_state.get(f"chunk_{c['idx']}", True)]
-    total_sel_s  = sum(c["duration"] for c in selected)
+    selected    = [c for c in chunks if st.session_state.get(f"chunk_{c['idx']}", True)]
+    total_sel_s = sum(c["duration"] for c in selected)
 
     st.divider()
     if not selected:
         st.warning("Select at least one chunk.")
         st.stop()
 
-    # Advisory based on Groq free-tier hourly limit (7,200 audio seconds/hour)
     GROQ_HOURLY_LIMIT = 7200
     if total_sel_s > GROQ_HOURLY_LIMIT:
         hrs = total_sel_s / GROQ_HOURLY_LIMIT
         st.warning(
             f"**Selected: {total_sel_s/60:.0f} min of audio.**  "
             f"Groq free tier allows 120 min/hour — this will span "
-            f"~{hrs:.1f} hour-windows. The app will pause automatically "
-            f"if a rate-limit is hit and retry after 65 seconds."
+            f"~{hrs:.1f} hour-windows. The app will pause with a countdown "
+            f"if a rate-limit is hit."
         )
     else:
         st.info(f"Selected: {total_sel_s/60:.0f} min — fits within Groq's hourly limit.")
@@ -317,120 +343,151 @@ elif st.session_state.stage == "select":
                             break
                         except Exception as e:
                             if attempt < 2 and "rate" in str(e).lower():
-                                st.toast("Rate limit hit — waiting 65 s before retry …")
-                                time.sleep(65)
+                                wait_sec = 65
+                                for remaining in range(wait_sec, 0, -1):
+                                    s.update(
+                                        label=f"Rate limit hit — retrying in {remaining}s …",
+                                        state="running",
+                                    )
+                                    time.sleep(1)
                             else:
                                 st.error(f"Transcription failed: {e}")
                                 st.stop()
                 finally:
                     os.unlink(tf.name)
 
-            # Small courtesy pause between chunks
             if i < len(selected) - 1:
                 time.sleep(3)
 
         st.session_state.transcript = "\n\n".join(parts)
 
-        # ── Generate documents via Claude ─────────────────────
+        # ── Generate documents via Claude (with prompt caching) ─
         claude     = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         transcript = st.session_state.transcript
 
-        def claude_call(system_prompt: str, user_prompt: str) -> str:
+        # System prompt and transcript are cached across all 3 calls.
+        # Only the task instruction differs per call.
+        base_system = (
+            f"You are a precise transcription analyst for a medical diagnostics company.\n"
+            f"Company: {company}\n"
+            f"Author: {sender_name}, {sender_title}\n"
+            f"Context: {feedback_context}\n\n"
+            f"ABSOLUTE RULES — apply to every output you produce:\n"
+            f"1. Capture ONLY what was explicitly said in the transcript. Never infer, extrapolate, or add anything not directly stated.\n"
+            f"2. Use the speaker's own words and phrasing as closely as possible. Do not paraphrase to make it sound better.\n"
+            f"3. Do not add pleasantries, filler phrases, or padding sentences to meet a length target.\n"
+            f"4. If a section has no content in the transcript, write exactly: [Not mentioned] — never leave it blank or fabricate content.\n"
+            f"5. Do not validate, endorse, or editorialize the speaker's observations. Record them as stated.\n"
+            f"6. Omit any section entirely if the transcript contains zero content for it."
+        )
+
+        def claude_call(task_prompt: str) -> str:
             msg = claude.messages.create(
                 model="claude-sonnet-4-6",
                 max_tokens=4000,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_prompt}],
+                system=[
+                    {
+                        "type": "text",
+                        "text": base_system,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": f"TRANSCRIPT:\n\"\"\"\n{transcript}\n\"\"\"",
+                                "cache_control": {"type": "ephemeral"},
+                            },
+                            {
+                                "type": "text",
+                                "text": task_prompt,
+                            },
+                        ],
+                    }
+                ],
+                extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
             )
             return msg.content[0].text
-
-        base_system = (
-            f"You are an expert technical writer for a medical diagnostics company.\n"
-            f"Company: {company}\n"
-            f"Author: {sender_name}, {sender_title}\n"
-            f"Context: {feedback_context}"
-        )
 
         if do_summary:
             with st.status("Generating summary …") as s:
                 st.session_state.summary = claude_call(
-                    base_system,
-                    f"""Write a concise executive summary (5–7 bullet points) of the transcript below.
-Focus on key observations, issues identified, and outcomes.
+                    """Write a factual bullet-point summary using only what was explicitly stated in the transcript above.
 
-Transcript:
-\"\"\"{transcript}\"\"\"
-""",
+Rules:
+- Use the speaker's own words and sentences as closely as possible.
+- Each bullet = one clear statement directly from the transcript. No interpretation.
+- Do NOT add context, background, or implications not stated by the speaker.
+- Do NOT use phrases like "the speaker noted", "it was emphasized", "importantly" — just state the fact.
+- If fewer than 5 distinct points were made, use fewer bullets. Do not pad.
+- Maximum 8 bullets.
+
+Format: plain bullet list, no heading, no preamble."""
                 )
-                s.update(label="Summary done", state="complete")
+                s.update(label="Summary done ✓", state="complete")
 
         if do_mom:
             with st.status("Generating minutes of meeting …") as s:
                 st.session_state.mom = claude_call(
-                    base_system,
-                    f"""Generate structured Minutes of Meeting from the transcript below.
+                    f"""Generate Minutes of Meeting strictly from what was said in the transcript above.
 
-CRITICAL RULES — follow these strictly:
-1. Only capture what was actually said in the transcript. Do NOT add, infer, embellish, or assume anything not explicitly stated.
-2. Use the speaker's own words and sentences as closely as possible. Avoid paraphrasing or rewriting.
-3. If information for any section is absent from the transcript, write exactly: "[Not mentioned/discussed in this meeting]" — never leave a section blank or fabricate content.
-4. AGENDA: Extract ONLY what the meeting host/initiator stated as the purpose of the meeting — verbatim or near-verbatim. Do NOT include responses, additions, or elaborations made by other participants. The agenda is set by the host alone.
-5. DISCUSSION: Capture what each participant said using their actual words as closely as possible. Attribute statements to the correct speaker.
-6. OBSERVATIONS & FINDINGS: Only include observations explicitly stated in the transcript. No inferences.
-7. DECISIONS: Only include decisions explicitly stated or agreed upon. Do not infer decisions from discussion.
-8. ACTION ITEMS: Only include tasks explicitly assigned or volunteered in the transcript. Do not derive action items from discussion.
+RULES — non-negotiable:
+1. Every line must trace directly to something said in the transcript. If it was not said, do not write it.
+2. Quote or closely paraphrase the speaker's own words. Do not rewrite into polished prose.
+3. For any section with no content in the transcript, write exactly: [Not mentioned in meeting] — never omit the section or fabricate content.
+4. AGENDA: Only the host/initiator's stated purpose — verbatim or near-verbatim. No other participant's input here.
+5. DISCUSSION: Attribute each point to the correct speaker using their actual words as closely as possible.
+6. OBSERVATIONS & FINDINGS: Only observations explicitly stated. No inferences.
+7. DECISIONS: Only decisions explicitly stated or agreed upon. No inferred decisions.
+8. ACTION ITEMS: Only tasks explicitly assigned or volunteered. No derived tasks.
 
-Use this format exactly:
+OUTPUT FORMAT — use exactly:
 
 ## Minutes of Meeting
-**Date:** [exact date if stated in transcript; otherwise write: Not mentioned in the meeting]
+**Date:** [exact date if stated; otherwise: Not mentioned]
 **Prepared by:** {sender_name}, {sender_title}, {company}
-**Attendees:** [names if mentioned in transcript; otherwise write: Not mentioned in the meeting]
+**Attendees:** [names if mentioned; otherwise: Not mentioned]
 
 ### Agenda
-[Only the host/initiator's stated purpose — verbatim or near-verbatim. No other participant's input here.]
+[Host's stated purpose — verbatim or near-verbatim only]
 
 ### Discussion
-[Key points by all participants using their actual words as closely as possible, attributed to the correct speaker]
+[Each participant's points in their own words, attributed by name or role]
 
 ### Observations & Findings
-[Only observations explicitly stated in the transcript. If none: Not mentioned in the meeting.]
+[Only explicitly stated observations. If none: Not mentioned in meeting.]
 
 ### Decisions
-[Only decisions explicitly stated or agreed upon. If none: Not mentioned in the meeting.]
+[Only explicitly stated decisions. If none: Not mentioned in meeting.]
 
 ### Action Items
 | # | Action | Owner | Due |
 |---|--------|-------|-----|
-[Only tasks explicitly assigned or agreed upon in the transcript. If none, add a single row: Not discussed in the meeting | — | —]
-
-Transcript:
-\"\"\"{transcript}\"\"\"
-""",
+[Only explicitly assigned tasks. If none: single row — Not discussed | — | —]"""
                 )
-                s.update(label="Minutes done", state="complete")
+                s.update(label="Minutes done ✓", state="complete")
 
         if do_email:
             with st.status("Generating feedback email …") as s:
                 st.session_state.email = claude_call(
-                    base_system,
-                    f"""Convert the transcript below into a professional feedback email.
+                    f"""Convert the transcript above into a professional feedback email.
 
 Subject: {email_subject}
 From: {sender_name}, {sender_title}, {company}
 To: {recipient_name}
 
-Guidelines:
-- Preserve ALL technical observations and findings.
-- Organise: observations → findings → suggested actions.
-- Use bullet points where appropriate.
-- Do NOT add information absent from the transcript.
-
-Transcript:
-\"\"\"{transcript}\"\"\"
-""",
+Rules:
+- Include ONLY observations, issues, and points explicitly stated in the transcript.
+- Use the speaker's own words and phrasing. Do not embellish or rewrite.
+- Omit any section (observations / findings / next steps) if the transcript has no content for it.
+- No padding, pleasantries beyond a single-line greeting, or filler sentences.
+- Bullet points for issues and findings. One sentence per bullet.
+- Close with sign-off from {sender_name}. No motivational or closing remarks beyond the sign-off."""
                 )
-                s.update(label="Email done", state="complete")
+                s.update(label="Email done ✓", state="complete")
 
         st.session_state.stage = "done"
         st.rerun()
